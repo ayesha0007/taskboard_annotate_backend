@@ -1,85 +1,131 @@
-# Task Board + Annotation Tool — Backend (Django REST API)
+# Flowdeck — Backend
 
-Django REST Framework API powering two modules:
-1. **Tasks** — a date-scoped Kanban board (`/api/v1/tasks/`)
-2. **Annotations** — image upload + polygon drawing storage (`/api/v1/annotations/`)
+Django REST API powering Flowdeck: a combined Kanban task board (with a
+per-task document editor) and an image annotation workspace.
 
-Auth is email/password based, using JWT (access + refresh tokens).
-
-## Tech stack
+## Tech Stack
 
 - Python 3.12
-- Django 5.0 + Django REST Framework
-- SimpleJWT for authentication
-- SQLite by default (swap to Postgres via `DATABASE_URL` — no code changes needed)
+- Django 5.0.7
+- Django REST Framework 3.15.2
+- djangorestframework-simplejwt 5.3.1 (JWT authentication with refresh)
+- django-cors-headers 4.4.0
+- Pillow 10.4.0 (image handling)
+- django-filter 24.2
+- SQLite by default, swappable via `DATABASE_URL` (dj-database-url)
+- gunicorn + whitenoise for production serving
 
-## Project structure
+## Getting Started
 
-```
-backend/
-├── config/            # settings, root urls, wsgi/asgi
-└── apps/
-    ├── users/          # custom email-based User model + JWT login
-    ├── tasks/          # Kanban Task model + CRUD API
-    └── annotations/    # image upload + polygon CRUD API
-```
+### Prerequisites
 
-## Getting started
+- Python 3.12.x
+- pip
+
+### Setup
 
 ```bash
-# 1. create and activate a virtual environment
+git clone <backend-repo-url>
+cd <backend-repo>
 python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-
-# 2. install dependencies
+source venv/bin/activate        
 pip install -r requirements.txt
-
-# 3. configure environment variables
 cp .env.example .env
-# open .env and set a real SECRET_KEY
-
-# 4. run migrations
 python manage.py migrate
-
-# 5. create an admin/demo user
-python manage.py createsuperuser
-
-# 6. run the dev server
+python manage.py createsuperuser   # optional, for /admin access
 python manage.py runserver
 ```
 
-API will be available at `http://127.0.0.1:8000/api/v1/`.
+The API is available at `http://127.0.0.1:8000/api/v1/`.
 
-## Key endpoints
+### Environment Variables
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/v1/auth/login/` | Login with `email` + `password`, returns JWT pair |
-| POST | `/api/v1/auth/refresh/` | Refresh an access token |
-| GET | `/api/v1/auth/me/` | Current authenticated user |
-| GET/POST | `/api/v1/tasks/?date=YYYY-MM-DD` | List/create tasks for a date |
-| PATCH/DELETE | `/api/v1/tasks/{id}/` | Update (e.g. drag-and-drop status/position) or delete a task |
-| GET/POST | `/api/v1/annotations/images/` | List / upload images (multipart) |
-| GET/POST | `/api/v1/annotations/polygons/?image={id}` | List / create polygons for an image |
-| DELETE | `/api/v1/annotations/polygons/{id}/` | Remove one polygon |
+See `.env.example` for the full list. Key variables:
 
-All endpoints except login require an `Authorization: Bearer <token>` header.
+| Variable | Purpose |
+|---|---|
+| `SECRET_KEY` | Django cryptographic secret. Generate a new one for production (`python -c "import secrets; print(secrets.token_urlsafe(50))"`). |
+| `DEBUG` | Set to `False` in production. |
+| `ALLOWED_HOSTS` | Comma-separated list of allowed hosts. |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated list of allowed frontend origins. |
+| `DATABASE_URL` | Optional; leave empty to use local SQLite. |
+| `ACCESS_TOKEN_LIFETIME_MINUTES` / `REFRESH_TOKEN_LIFETIME_DAYS` | JWT lifetimes. |
 
-## Security notes
+## Project Structure
 
-- Custom `User` model authenticates by email, passwords are hashed by Django's PBKDF2 hasher.
-- Every queryset is scoped to `request.user` — one user can never read or mutate another user's tasks, images, or polygons.
-- Uploaded images are validated for content-type (`jpeg/png/webp`) and size (max 5MB).
-- Polygon point data is validated server-side (min 3 points, normalized 0–1 coordinates) so bad data from a buggy frontend can't corrupt the database.
-- `DEBUG=False` in production automatically turns on HSTS, secure cookies, and SSL redirect (see `config/settings.py`).
-- Login endpoint is rate-limited (`10/min`) via DRF throttling to slow down brute-force attempts.
+backend/
+├── manage.py
+├── requirements.txt
+├── config/                 # project settings, root URLconf, WSGI/ASGI
+│   ├── settings.py
+│   └── urls.py
+└── apps/
+├── users/               # authentication (JWT login/refresh)
+├── tasks/               # Kanban task CRUD, deadlines, document content
+└── annotations/         # image upload, classes, polygon/box/pen shapes
+(each app: models.py, serializers.py, views.py, urls.py, migrations/)
+## API Overview
 
-## Difficulties faced & how they were solved
+- `POST /api/v1/auth/login/`, `POST /api/v1/auth/refresh/`
+- `GET/POST /api/v1/tasks/` — optional `?date=YYYY-MM-DD` filter; omitted
+  returns all of the authenticated user's tasks
+- `GET/PATCH/DELETE /api/v1/tasks/{id}/`
+- `GET/POST /api/v1/annotations/images/`
+- `GET/PATCH/DELETE /api/v1/annotations/images/{id}/`
+- `GET/POST/PATCH/DELETE /api/v1/annotations/polygons/`
+- `GET/POST/PATCH/DELETE /api/v1/annotations/classes/`
 
-- **Custom user model with email login**: Django's default `User` uses `username`. Swapping the `USERNAME_FIELD` to `email` required a custom `UserManager` (for `createsuperuser`/`create_user`) — solved by subclassing `AbstractBaseUser` + `PermissionsMixin` directly instead of fighting the default model.
-- **Keeping annotation coordinates resolution-independent**: storing raw pixel coordinates would break if the frontend rendered the image at a different size. Solved by normalizing all polygon points to a 0–1 range relative to image width/height, validated in the serializer.
-- **Preventing cross-user data leaks on nested resources**: a polygon references an image, but that image's ownership had to be re-checked on create (not just on the queryset) — otherwise a user could attach a polygon to *someone else's* image ID. Solved with an explicit ownership check in `perform_create`.
+All endpoints except auth require a valid JWT and are scoped to the
+authenticated user via `owner`.
 
-## Environment variables
+## Data Model Notes
 
-See `.env.example` for the full list (`SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `DATABASE_URL`, JWT lifetimes).
+- `Task.due_date` + `Task.due_time` (optional) together form the deadline.
+- `Task.content` stores the rich-text HTML written in the frontend's
+  per-task document editor; `Task.sketch_data` stores a base64 PNG of the
+  freehand sketch layer.
+- `Polygon.points` is a list of `[x, y]` pairs normalized to `0–1` against
+  the *source image's own dimensions* (not any particular UI container),
+  so annotations remain correct regardless of how the frontend renders
+  them.
+
+## Challenges & Solutions
+
+**Annotation coordinates tied to the display container instead of the
+image.** Early on, annotation points were normalized against the on-screen
+canvas element, which letterboxes non-16:9 images. This worked for
+drawing and displaying overlays (since the same container was used for
+both), but broke cropped-thumbnail generation, which needs coordinates in
+image space. Resolved on the frontend by normalizing points against the
+image's actual rendered content instead of the container; no backend
+change was required since `Polygon.points` was already just opaque
+normalized floats.
+
+**Deadlines conflicting with day-filtered task views.** Once `Task` grew
+optional `due_time` and tasks could be created for any future date, the
+frontend's day-scoped board view made new tasks for other days appear to
+vanish. No backend fix was needed here — the `?date=` filter on
+`TaskViewSet.get_queryset` was already optional, so making the filter
+optional client-side (default: all tasks) resolved it without an API
+change.
+
+**Verifying data loss vs. display bugs.** When a reported "tasks
+disappearing" bug turned out to be a frontend display issue, the fastest
+way to rule out a backend persistence bug was `python manage.py shell`
+against the `Task` queryset directly, confirming the rows existed with
+correct field values before spending time on frontend fixes.
+
+**JWT refresh race conditions.** Concurrent requests hitting a 401 while
+a token refresh is already in flight are queued on the frontend and
+replayed once the new access token is available, avoiding duplicate
+refresh calls and inconsistent auth state.
+
+## Development Notes
+
+Parts of this project were built with the assistance of Claude (Anthropic)
+for scaffolding, debugging, and code review, alongside the official Django
+and Django REST Framework documentation for API design and JWT
+authentication setup. All generated code was reviewed, tested, and
+adjusted before being committed.
+
+

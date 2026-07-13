@@ -23,7 +23,13 @@ class Task(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.TODO)
     priority = models.CharField(max_length=10, choices=Priority.choices, default=Priority.MEDIUM)
     due_date = models.DateField(db_index=True)
+    due_time = models.TimeField(null=True, blank=True)
     tags = models.JSONField(default=list, blank=True)  # e.g. ["frontend", "urgent"]
+
+    # rich-text content written in the per-task document editor
+    content = models.TextField(blank=True, default="")
+    # base64 PNG data URL for the freehand sketch layer
+    sketch_data = models.TextField(blank=True, default="")
 
     # order within its column, used for drag-and-drop persistence
     position = models.PositiveIntegerField(default=0)
