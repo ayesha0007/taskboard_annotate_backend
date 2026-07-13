@@ -129,3 +129,4 @@ authentication setup. All generated code was reviewed, tested, and
 adjusted before being committed.
 
 
+# taskboard_annotate_backend
