@@ -129,4 +129,21 @@ authentication setup. All generated code was reviewed, tested, and
 adjusted before being committed.
 
 
-# taskboard_annotate_backend
+## Demo Credentials
+
+- Email: `nisa@gmail.com`
+- Password: `12345`
+
+## Running the Project
+
+### Backend (Django)
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+python manage.py migrate
+python manage.py runserver
+```
